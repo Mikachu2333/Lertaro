@@ -20,8 +20,12 @@ static class ServiceInstaller
 
             // Clean up any existing service instance to prevent "1073: service already exists" errors
             Logger.Log("Cleaning up existing service instance before install.");
-            ServiceControlRunner.Run("stop LertaroService", 0, 1060, 1062);
-            ServiceControlRunner.Run("delete LertaroService", 0, 1060);
+            var stop = ServiceControlRunner.Run("stop LertaroService", 0, 1060, 1062);
+            if (!stop.IsSuccess(0, 1060, 1062))
+                throw new InvalidOperationException($"sc stop failed: {stop.Error}");
+            var delete = ServiceControlRunner.Run("delete LertaroService", 0, 1060);
+            if (!delete.IsSuccess(0, 1060))
+                throw new InvalidOperationException($"sc delete failed: {delete.Error}");
 
             Logger.Log($"Installing service: sc.exe create LertaroService binPath=\"{serviceExePath} --service\"");
 
@@ -58,7 +62,9 @@ static class ServiceInstaller
         try
         {
             Logger.Log("Stopping service: sc.exe stop LertaroService");
-            ServiceControlRunner.Run("stop LertaroService", 0, 1060, 1062);
+            var stop = ServiceControlRunner.Run("stop LertaroService", 0, 1060, 1062);
+            if (!stop.IsSuccess(0, 1060, 1062))
+                throw new InvalidOperationException($"sc stop failed: {stop.Error}");
 
             Logger.Log("Deleting service: sc.exe delete LertaroService");
             var delete = ServiceControlRunner.Run("delete LertaroService", 0, 1060);
