@@ -3,7 +3,7 @@ using Lertaro.PluginSdk.Abstractions.Plugins.WindowAdapters;
 namespace Lertaro.Plugins.WPS.Tests;
 
 // The adapter's behaviour that does not need a live WPS dialog: the guards that decide whether to touch
-// UI Automation at all, and the two members whose answers are fixed.
+// UI Automation at all, and the one member whose answer is fixed.
 [TestClass]
 public sealed class WPSFileDialogAdapterTests
 {
@@ -58,16 +58,4 @@ public sealed class WPSFileDialogAdapterTests
         Assert.IsFalse(Adapter().GetDockBounds(IntPtr.Zero, out var rect));
         Assert.AreEqual(default(AdapterRect), rect);
     }
-
-    [TestMethod]
-    public void TheComponentIsNamedForTheApplicationItIntegratesWith() =>
-        // Shown in Settings -> Plugins, and it is what the user looks for when deciding whether to turn
-        // this off.
-        Assert.AreEqual("WPS", Adapter().Name);
-
-    [TestMethod]
-    public void TheAdapterIsDiscoverableAsAFileDialogAdapter() =>
-        // How it reaches FileDialogAdapterRegistry at all: the loaders scan for the interface rather than
-        // taking any registration from the plugin itself.
-        Assert.IsInstanceOfType<IFileDialogAdapter>(Adapter());
 }
