@@ -72,8 +72,8 @@ When interacting with this repository, performing code modification, compilation
      ```
 
 5. **Strict Code File Line Limit (Modularization & Decoupling)**
-   * All `.cs` and `.xaml` code files must be strictly kept under **300 lines**.
-   * Before every compilation/build, you must check the line counts of the modified files. If any file exceeds 300 lines, it must be refactored and decoupled.
+   * All `.cs` and `.xaml` code files must be strictly kept under **300 lines**, but if the benefits of splitting are too low, give up.
+   * Before every compilation/build, you must check the line counts of the modified files. If any file exceeds 300 lines, it must be refactored and decoupled, but if the benefits of splitting are too low, give up.
    * **Do not use `partial` classes or partial views as a shortcut to bypass this limit**. Instead, perform structural decoupling by extracting clean helper classes, utilizing C# extension methods, or grouping logical subcomponents into subfolders.
 
 6. **Clean File Naming and Directory Namespace Hierarchy**
