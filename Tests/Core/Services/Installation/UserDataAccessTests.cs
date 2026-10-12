@@ -1,37 +1,79 @@
+using System.Diagnostics;
+using System.Security.Principal;
 using Lertaro.Core.Services.Installation;
 
 namespace Lertaro.Core.Tests.Services.Installation;
 
-// What the App is told when its own data folder refuses a write. By that point the folder's owner is known to be
-// this account and the folder is known not to be a link, so what is left is the process's own right to write
-// there -- which is a launcher's decision, not a folder's, and elevation cannot undo it.
+// The data root has to be writable by the token this App actually got. Its DACL already grants this account
+// FullControl, so what is left is the mandatory integrity label: a Low token may not write an unlabelled
+// (Medium) folder however the DACL reads, which is the difference between a reduced start that works and one
+// refused a folder it owns.
+//
+// Whether the label can be written is the host's decision, not this type's: a directory owner may set it, and
+// a sandbox that withholds that right (ERROR_ACCESS_DENIED / ERROR_PRIVILEGE_NOT_HELD) must not turn into a
+// refused start. So these tests pin the contract that is the same either way -- it never throws, and it never
+// takes away the access Verify's own probe needs.
 [TestClass]
 public sealed class UserDataAccessTests
 {
-    [TestMethod]
-    public void ReducedIntegrityReason_OnlyBlamesAProcessBelowMedium()
-    {
-        Assert.IsNull(UserDataAccess.ReducedIntegrityReason(@"C:\Data", ProcessIntegrityLevel.MediumLevel));
-        Assert.IsNull(UserDataAccess.ReducedIntegrityReason(@"C:\Data", ProcessIntegrityLevel.HighLevel));
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "LertaroUserDataAccess_" + Guid.NewGuid().ToString("N"));
 
-        var low = UserDataAccess.ReducedIntegrityReason(@"C:\Data", ProcessIntegrityLevel.LowLevel);
-        Assert.IsNotNull(low);
-        StringAssert.Contains(low, @"C:\Data");
-        StringAssert.Contains(low, "Low integrity");
-        StringAssert.Contains(low, "Start Lertaro directly");
+    [TestCleanup]
+    public void Cleanup()
+    {
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
     [TestMethod]
-    public void RepairCannotHelpReason_ReadsTheLevelThisHostRunsAt()
+    public void SetLowIntegrityLabel_OnADirectoryThatCannotBeLabelled_DoesNotThrow()
     {
-        // Either answer is legitimate -- a normal host is Medium, and a test run started from a sandboxed
-        // launcher would not be -- so this asserts that the wrapper agrees with the level it read rather than
-        // with a constant. What the message says is asserted above, where the level can be named.
-        var level = ProcessIntegrityLevel.Current();
-        var reason = UserDataAccess.RepairCannotHelpReason(@"C:\Data");
-        var described = $"this host runs at {ProcessIntegrityLevel.Name(level)} integrity";
+        var directory = Directory.CreateDirectory(_root);
 
-        if (level < ProcessIntegrityLevel.MediumLevel) Assert.IsNotNull(reason, described);
-        else Assert.IsNull(reason, described);
+        // No assertion on the resulting label: this machine may or may not allow the write. What must hold is
+        // that a refusal is swallowed -- a start the probe would allow must not die here instead.
+        UserDataAccess.SetLowIntegrityLabel(directory);
+
+        Assert.IsTrue(directory.Exists, "labelling must leave the directory in place");
+    }
+
+    [TestMethod]
+    public void SetLowIntegrityLabel_LeavesTheOwnerAlone()
+    {
+        var directory = Directory.CreateDirectory(_root);
+        var before = directory.GetAccessControl(System.Security.AccessControl.AccessControlSections.Owner)
+            .GetOwner(typeof(SecurityIdentifier));
+
+        UserDataAccess.SetLowIntegrityLabel(directory);
+
+        Assert.AreEqual(before, directory.GetAccessControl(System.Security.AccessControl.AccessControlSections.Owner)
+            .GetOwner(typeof(SecurityIdentifier)), "labelling must not move the owner");
+    }
+
+    [TestMethod]
+    public void Verify_LeavesAUsableDirectoryUsable()
+    {
+        Directory.CreateDirectory(_root);
+
+        UserDataAccess.Verify(_root);
+
+        // The probe file Verify creates is DeleteOnClose, so a successful call leaves nothing behind.
+        Assert.IsEmpty(Directory.GetFiles(_root), "Verify must not leave its probe file behind");
+    }
+
+    [TestMethod]
+    public void Verify_ADataRootThatIsALink_IsRefused()
+    {
+        var target = Directory.CreateDirectory(Path.Combine(_root, "target")).FullName;
+        var link = Path.Combine(_root, "Lertaro");
+        using (var process = Process.Start(new ProcessStartInfo("cmd.exe",
+            $"/d /c mklink /J \"{link}\" \"{target}\"")
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!)
+            process.WaitForExit();
+
+        try
+        {
+            Assert.ThrowsExactly<UnauthorizedAccessException>(() => UserDataAccess.Verify(link));
+        }
+        finally { Directory.Delete(link); }
     }
 }

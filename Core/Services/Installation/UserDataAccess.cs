@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -26,6 +27,14 @@ public static class UserDataAccess
             throw new UnauthorizedAccessException(
                 $"The user data directory belongs to another security identity: {directory} (owner: {owner?.Value ?? "unknown"}, expected: {user.Value})");
 
+        // A DACL is only half of "may this process write here". Windows also compares the process's mandatory
+        // integrity level against the folder's: a Low token may not write an unlabelled (Medium) folder, and no
+        // DACL changes that. %LocalAppData%\Lertaro carries no label of its own, so a launch that runs reduced
+        // -- a sandbox, or any launcher that drops the token -- is refused a folder it demonstrably owns. The
+        // label is what makes the two agree, and it grants nothing: NW is no-write-up, so a Low process may
+        // write and every higher level may still do anything it could before.
+        SetLowIntegrityLabel(info);
+
         // An actual read/create/delete, not File.Exists or an Allow-ACE heuristic. Never truncate settings.
         _ = SettingsFileReader.ReadIfPresent(Path.Combine(directory, "user-settings.json"));
         using var probe = new FileStream(Path.Combine(directory, $".access-{Guid.NewGuid():N}.tmp"),
@@ -52,27 +61,51 @@ public static class UserDataAccess
     }
 
     /// <summary>
-    /// Why asking for an elevated repair would be pointless, or null when it may still be tried.
+    /// Labels <paramref name="directory"/> Low so a reduced token may write it. Best effort: a host that
+    /// refuses the SACL write (no <c>SeSecurityPrivilege</c>) simply keeps the label it had, and the write
+    /// probe below is what decides.
     /// </summary>
     /// <remarks>
-    /// A launcher that runs Lertaro sandboxed or reduced hands its process a Low mandatory label, and a Low
-    /// process cannot write anywhere in the user's own profile whatever the ACLs say -- the file it creates
-    /// inherits the folder's Medium label and its own write-up policy refuses the write. Elevation cannot change
-    /// that: the repair runs with its own token and exits, leaving the reduced one to try again, so the only
-    /// answer worth giving is the one the user can act on. The elevated attempt is still offered for everything
-    /// a repair can genuinely fix, which is why this is only about this process's own level.
+    /// Low plus <c>NW</c> is no-write-up, not no-read-down: the folder stays readable and writable by every
+    /// level at or above Low, which is every level this App runs at. Only the mandatory label is touched --
+    /// the DACL and owner this type just established are left exactly as they are.
+    ///
+    /// The label lives in the SACL, and .NET has no managed accessor for it (<c>AccessControlSections</c> has
+    /// no <c>Label</c> member), so this is the one place that goes to advapi32 directly. A caller who owns the
+    /// directory is allowed to set its label without elevation.
     /// </remarks>
-    internal static string? RepairCannotHelpReason(string directory) =>
-        ReducedIntegrityReason(directory, ProcessIntegrityLevel.Current());
+    internal static void SetLowIntegrityLabel(DirectoryInfo directory)
+    {
+        const uint SaclSecurityInformation = 0x00000008;
+        const uint SddlRevision1 = 1;
+        var descriptor = IntPtr.Zero;
+        try
+        {
+            if (!ConvertStringSecurityDescriptorToSecurityDescriptorW("S:(ML;;NW;;;LW)", SddlRevision1,
+                    out descriptor, out _))
+                return;
+            SetFileSecurityW(directory.FullName, SaclSecurityInformation, descriptor);
+        }
+        catch
+        {
+            // A folder that cannot be labelled is not a folder that cannot be used: Verify's own probe is the
+            // verdict, and failing here would refuse a start the probe would have allowed.
+        }
+        finally
+        {
+            if (descriptor != IntPtr.Zero) LocalFree(descriptor);
+        }
+    }
 
-    /// <summary>What <see cref="RepairCannotHelpReason"/> says at a given level. Pure, so it can be asserted.</summary>
-    internal static string? ReducedIntegrityReason(string directory, uint integrityRid) =>
-        integrityRid < ProcessIntegrityLevel.MediumLevel
-            ? $"{directory} is not writable by this process: it runs at "
-              + $"{ProcessIntegrityLevel.Name(integrityRid)} integrity, and an elevated repair does "
-              + "not change the token this process would still be using. Start Lertaro directly (Explorer, or a "
-              + "normal command prompt), not from a sandboxed or reduced-privilege launcher."
-            : null;
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string stringSecurityDescriptor,
+        uint stringSdRevision, out IntPtr securityDescriptor, out uint securityDescriptorSize);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool SetFileSecurityW(string fileName, uint securityInformation, IntPtr securityDescriptor);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr handle);
 
     private static byte[] DescribeUserDirectory(SecurityIdentifier user)
     {

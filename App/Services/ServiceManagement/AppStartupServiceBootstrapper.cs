@@ -27,6 +27,7 @@ internal static class AppStartupServiceBootstrapper
             try { Core.Services.Installation.UserDataAccess.Verify(directory); return true; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                // Never block the start: a check that keeps failing is the repair's cue, not a verdict.
                 if (ex is UnauthorizedAccessException || attempt >= attempts) return false;
                 await Task.Delay(delay).ConfigureAwait(false);
             }
@@ -46,12 +47,10 @@ internal static class AppStartupServiceBootstrapper
 
             if (await VerifyUserDataAsync(Logger.UserDataDir, VerifyAttempts, VerifyRetryDelay)) return true;
 
-            // A sandboxed or reduced launcher is not something the elevated repair can undo: it would fix ACLs
-            // and then hand the same reduced token back to try again. Saying that is more use than a UAC prompt
-            // which cannot change the outcome, and it is the difference between "Access is denied" and knowing
-            // that this copy was started from the wrong place.
-            if (Core.Services.Installation.UserDataAccess.RepairCannotHelpReason(Logger.UserDataDir) is { } reduced)
-                throw new UnauthorizedAccessException(reduced);
+            // A failed check never refuses the start on its own. It buys the repair below, and the start is
+            // decided by whether the folder works afterwards -- not by what this process's token looked like
+            // before it. Refusing a reduced or sandboxed launcher here would block a start that this same
+            // folder can still serve, so the level is reported by the failure message and nowhere else.
 
             // 5.8.2–5.8.4 could lock the user's own directory. Give the current service a chance to
             // repair it before asking for elevation, and finish this before loading settings or plugins.
