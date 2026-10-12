@@ -33,12 +33,25 @@ public static class ServiceInstallManager
             ? $"Permission repair failed (exit code {exitCode})."
             : $"Permission repair did not finish within {InstallerTimeoutMs / 1000} seconds; it was still at: "
               + $"{PermissionRepairReport.LastStep(report) ?? "an unrecorded step"}.";
-        var detail = exited
-            ? report ?? "It left no diagnostic of its own."
-            : "Its last recorded step is shown above.";
-        return $"{reason}\n{detail}\nTo see the failure directly, run \"{GetServiceExePath()}\" --repair-permissions {sid} "
+        var detail = TailOf(report) ?? "It left no diagnostic of its own.";
+        return $"{reason}\n{detail}\nThe whole trace is in {PermissionRepairReport.DefaultPath}\n"
+            + $"To see the failure directly, run \"{GetServiceExePath()}\" --repair-permissions {sid} "
             + "from an elevated command prompt.";
     }
+
+    /// <summary>
+    /// The last few lines of the repair's trace: enough to show what happened, not a scrolling box. The file
+    /// itself is capped at 16 KB, which is still far more than a message box should ever be asked to show.
+    /// </summary>
+    internal static string? TailOf(string? report, int lines = MaximumReportLines)
+    {
+        if (string.IsNullOrWhiteSpace(report)) return null;
+
+        var all = report.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return all.Length == 0 ? null : string.Join("\n", all[^Math.Min(lines, all.Length)..]);
+    }
+
+    private const int MaximumReportLines = 6;
 
     // Raised from 30 s: --repair-permissions performs the same install-directory lock walk as service startup
     // (see Program.LockDirectories), so the old budget no longer described the work it was bounding.

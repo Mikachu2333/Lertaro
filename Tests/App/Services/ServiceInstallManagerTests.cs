@@ -43,4 +43,27 @@ public sealed class ServiceInstallManagerTests
         StringAssert.Contains(withoutTrace, "no diagnostic of its own");
         StringAssert.Contains(timedOut, "unrecorded step");
     }
+
+    // The trace is a file the user can open; a message box is not the place to show sixteen kilobytes of it.
+    [TestMethod]
+    public void DescribeRepairFailure_LongTrace_ShowsTheEndOfItAndPointsAtTheFile()
+    {
+        var trace = string.Join("\n", Enumerable.Range(1, 40).Select(index => $"[step {index}] doing something"));
+        var text = ServiceInstallManager.DescribeRepairFailure(exited: true, exitCode: 1, report: trace, sid: "S-1-5-21-1");
+
+        StringAssert.Contains(text, "[step 40]");
+        Assert.IsFalse(text.Contains("[step 1] doing", StringComparison.Ordinal), text);
+        StringAssert.Contains(text, "repair.log");
+    }
+
+    [TestMethod]
+    public void TailOf_KeepsTheLastLinesOnly()
+    {
+        Assert.IsNull(ServiceInstallManager.TailOf(null));
+        Assert.IsNull(ServiceInstallManager.TailOf("   "));
+
+        var tail = ServiceInstallManager.TailOf("a\nb\nc\nd", lines: 2);
+
+        Assert.AreEqual("c\nd", tail);
+    }
 }
