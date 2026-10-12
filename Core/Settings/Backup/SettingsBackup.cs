@@ -19,14 +19,22 @@ public static class SettingsBackup
         if (fullDestination.StartsWith(source.Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Choose a backup destination outside the live user data directory.");
         using (var settings = source.Read("user-settings.json")) SettingsBackupFormat.ValidateSettings(settings);
-        using (var parameters = source.Read(PluginSettingsStore.FileName)) PluginSettingsStore.Parse(SettingsBackupFormat.ReadJson(parameters));
+        // Written the first time any plugin setting is saved, so a profile that has never saved one does not
+        // have it -- and reading it unconditionally failed the whole export with FileNotFoundException.
+        var hasPluginSettings = source.Exists(PluginSettingsStore.FileName);
+        if (hasPluginSettings)
+        {
+            using var parameters = source.Read(PluginSettingsStore.FileName);
+            PluginSettingsStore.Parse(SettingsBackupFormat.ReadJson(parameters));
+        }
         var manifest = new SettingsBackupManifest
         {
             ApplicationVersion = applicationVersion, IncludesPluginFiles = includePluginFiles,
             Plugins = SettingsBackupInventory.Read(source, applicationDirectory)
         };
         manifest.BridgeVersion = manifest.Plugins.FirstOrDefault(p => p.Name == "Lertaro.Plugins.FlowLauncherBridge")?.Version;
-        var paths = new List<string> { "user-settings.json", PluginSettingsStore.FileName };
+        var paths = new List<string> { "user-settings.json" };
+        if (hasPluginSettings) paths.Add(PluginSettingsStore.FileName);
         paths.AddRange(source.Files("FlowData/Settings"));
         paths.AddRange(source.Files("Calendar"));
         if (includePluginFiles) paths.AddRange(source.Files("FlowData/Plugins"));
