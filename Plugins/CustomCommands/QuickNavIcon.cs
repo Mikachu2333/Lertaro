@@ -83,8 +83,25 @@ internal static class QuickNavIcon
 
     public static IntPtr GetCategoryHBitmap()
     {
-        if (_categoryCached == IntPtr.Zero) _categoryCached = RenderOnUiThread(CategoryPath);
-        return _categoryCached;
+        lock (Sync)
+        {
+            if (_categoryCached != IntPtr.Zero) return _categoryCached;
+        }
+
+        // Same shape as GetCommandHBitmap above, and for the same reason: the render marshals onto the UI
+        // thread, so it happens outside the lock, and two threads racing on a cold cache each used to make a
+        // bitmap and then overwrite the other's -- leaving the loser's GDI handle with nothing pointing at it.
+        var rendered = RenderOnUiThread(CategoryPath);
+        lock (Sync)
+        {
+            if (_categoryCached != IntPtr.Zero)
+            {
+                DeleteObject(rendered);
+                return _categoryCached;
+            }
+
+            return _categoryCached = rendered;
+        }
     }
 
     // Called once per quick-nav popup session (CustomCommandsQuickNavProvider.ClearSession), a point at
