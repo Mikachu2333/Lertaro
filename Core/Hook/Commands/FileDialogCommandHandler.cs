@@ -58,6 +58,29 @@ internal static class FileDialogCommandHandler
         return adapter.NavigateTo(dialogHwnd, path);
     }
 
+    /// <summary>
+    /// The same navigation, off the caller's thread and never throwing into it: NavigateTo sends messages into
+    /// another process, so the tracker thread that owns the state cannot be the one that waits for it, and an
+    /// adapter fault must not escape a pool thread (which takes the whole hook process -- and every global
+    /// hotkey -- down with it).
+    /// </summary>
+    internal static void NavigateOffThread(IFileDialogAdapter adapter, IntPtr dialogHwnd, string path, bool restoreFocus = false) =>
+        ThreadPool.QueueUserWorkItem(_ => NavigateLoggingFailures(adapter, dialogHwnd, path, restoreFocus));
+
+    /// <summary>The work item's body, callable directly so its two failure modes can be exercised.</summary>
+    internal static void NavigateLoggingFailures(IFileDialogAdapter adapter, IntPtr dialogHwnd, string path, bool restoreFocus = false)
+    {
+        try
+        {
+            if (!Navigate(adapter, dialogHwnd, path, restoreFocus))
+                Logger.Log($"[FileDialogCommandHandler] Adapter {adapter.GetType().Name} declined to navigate 0x{dialogHwnd:x} to '{path}'.", LogLevel.Warn);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[FileDialogCommandHandler] NavigateTo threw for 0x{dialogHwnd:x}: {ex.Message}", LogLevel.Error);
+        }
+    }
+
     public static void HandleRestoreDialogFocus(HookProcess process, IpcMessage msg)
     {
         var activeHwnd = (IntPtr)msg.Hwnd;

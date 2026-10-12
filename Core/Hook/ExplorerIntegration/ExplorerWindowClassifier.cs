@@ -146,7 +146,9 @@ internal sealed class ExplorerWindowClassifier
 
                                 // Remember the provider while it is the active window: that is when its scope
                                 // is still readable, and a folder that did not move is no reason to forget it.
-                                _tracker.RememberPathProvider(_tracker.ActiveInlineAdapter, rootHwnd);
+                                // The path travels with it: Quick Switch picks among these windows by which one
+                                // shares the dialog's process, and an entry without a folder cannot be chosen.
+                                _tracker.RememberPathProvider(_tracker.ActiveInlineAdapter, rootHwnd, activePath);
 
                                 if (activePath != _tracker.LastPath)
                                 {
