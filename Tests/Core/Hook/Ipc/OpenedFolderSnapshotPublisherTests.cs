@@ -88,7 +88,7 @@ public sealed class OpenedFolderSnapshotPublisherTests
     {
         var ranks = OpenedFolderSnapshotPublisher.WindowRanks();
         var known = new List<int>();
-        foreach (var window in Lertaro.Core.Hook.ExplorerNativeHooks.TopLevelWindowsInZOrder())
+        foreach (var window in Core.Hook.ExplorerNativeHooks.TopLevelWindowsInZOrder())
             known.Add(ranks(window));
 
         Assert.IsNotEmpty(known);

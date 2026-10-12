@@ -1,4 +1,3 @@
-using Lertaro.Core;
 using Lertaro.Core.Services.Installation;
 
 namespace Lertaro.Core.Tests.Services.Installation;

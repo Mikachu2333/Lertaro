@@ -1,5 +1,3 @@
-using Lertaro.Plugins.CustomCommands;
-
 namespace Lertaro.Plugins.CustomCommands.Tests;
 
 // The quick-navigation submenu loader builds its rows inside Task.Run, so these getters are reached from a

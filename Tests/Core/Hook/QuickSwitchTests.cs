@@ -300,7 +300,7 @@ public sealed class QuickSwitchTests
     public void CheckAndHandleQuickSwitch_DoesNotWaitForTheTrackerLock()
     {
         using var tracker = DialogTracker(browsedFolder: @"D:\Work");
-        IntPtr requested = IntPtr.Zero;
+        var requested = IntPtr.Zero;
         var detector = new GlobalHotkeyDetector(new UserSettings(), tracker, hwnd => requested = hwnd);
 
         using var held = new ManualResetEventSlim(false);

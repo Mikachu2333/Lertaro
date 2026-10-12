@@ -80,10 +80,7 @@ public sealed class UpdateCheckServiceTests
     }
 
     [TestMethod]
-    public void ShouldReportFailure_NoVerdictAtAll_IsNothingToSay()
-    {
-        Assert.IsFalse(UpdateCheckService.ShouldReportFailure(null, 0, Now));
-    }
+    public void ShouldReportFailure_NoVerdictAtAll_IsNothingToSay() => Assert.IsFalse(UpdateCheckService.ShouldReportFailure(null, 0, Now));
 
     // An install directory can hold a verdict from months ago; describing it now would be describing a
     // different installation. A future-dated one is refused for the reason the relaunch marker gives.
