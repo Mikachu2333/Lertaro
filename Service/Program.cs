@@ -29,12 +29,17 @@ static class Program
             // locked any user may have planted a link in it that redirects exactly that write.
             var repair = args.Length > 0 && args[0].Equals("--repair-permissions", StringComparison.OrdinalIgnoreCase);
             var isService = args.Length > 0 && args[0].Equals("--service", StringComparison.OrdinalIgnoreCase);
+            // This path has no log of its own (see PermissionRepairReport), so every step is recorded before it
+            // runs: a repair that is killed for running too long leaves the step it was stuck on as the last line.
+            if (repair) PermissionRepairReport.Write($"repair starting ({string.Join(' ', args)})");
             var (lockReport, lockErrors) = LockDirectories(isService: isService || repair);
             var install = args.Length > 0 && args[0] is "--install" or "-i";
             if ((isService || repair || install) && (lockReport.Failed.Count > 0 || lockErrors.Count > 0))
             {
                 // Do not open logs, indexes or plugins through a tree whose ACL preparation failed.
-                Console.Error.WriteLine(string.Join(Environment.NewLine, lockReport.Failed.Concat(lockErrors)));
+                var failure = string.Join(Environment.NewLine, lockReport.Failed.Concat(lockErrors));
+                if (repair) PermissionRepairReport.Write($"repair failed while locking directories: {failure}");
+                Console.Error.WriteLine(failure);
                 Environment.ExitCode = 1;
                 return;
             }
@@ -49,12 +54,26 @@ static class Program
                     var localData = Path.Combine(profile, "AppData", "Local", "Lertaro");
                     if (Directory.Exists(localData))
                     {
+                        PermissionRepairReport.Write($"repairing {localData}");
                         var repaired = PortableDirectoryLock.RepairProfileUserDirectory(profile, new System.Security.Principal.SecurityIdentifier(args[1]));
                         if (repaired.Failed.Count > 0 || repaired.UserDataFailed.Count > 0)
                             throw new IOException(string.Join(Environment.NewLine, repaired.Failed.Concat(repaired.UserDataFailed)));
                     }
+                    else
+                    {
+                        PermissionRepairReport.Write($"{localData} does not exist; nothing to repair.");
+                    }
+
+                    PermissionRepairReport.Write("repair completed");
                 }
-                catch (Exception ex) { Console.Error.WriteLine(ex.Message); Environment.ExitCode = 1; }
+                catch (Exception ex)
+                {
+                    // Written back for the App to show: with UseShellExecute + runas its stderr cannot be
+                    // redirected, and the service log is not open yet on this path.
+                    PermissionRepairReport.Write($"repair failed: {ex.Message}");
+                    Console.Error.WriteLine(ex.Message);
+                    Environment.ExitCode = 1;
+                }
                 return;
             }
             Logger.Initialize("service.log", Logger.SharedDataDir, overwrite: true);
