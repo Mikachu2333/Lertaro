@@ -29,7 +29,8 @@ public static class SettingsBackup
         }
         var manifest = new SettingsBackupManifest
         {
-            ApplicationVersion = applicationVersion, IncludesPluginFiles = includePluginFiles,
+            ApplicationVersion = applicationVersion,
+            IncludesPluginFiles = includePluginFiles,
             Plugins = SettingsBackupInventory.Read(source, applicationDirectory)
         };
         manifest.BridgeVersion = manifest.Plugins.FirstOrDefault(p => p.Name == "Lertaro.Plugins.FlowLauncherBridge")?.Version;

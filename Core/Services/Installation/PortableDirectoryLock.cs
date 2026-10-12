@@ -124,7 +124,7 @@ public static class PortableDirectoryLock
         appDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(appDirectory));
         if (SettingsFileReader.ReadIfPresent(Path.Combine(appDirectory, RevisionFile)) != PermissionsRevision) return false;
         return IsCurrent(appDirectory, Directory.Exists(Path.Combine(appDirectory, "Data")),
-            UserProfiles.Read().Keys, (folder, zone) => Directory.Exists(folder) && InstallDirectoryLock.GrantsAtLeast(folder, zone));
+            UserProfiles.Read().Keys, (folder, zone) => Directory.Exists(folder) && GrantsAtLeast(folder, zone));
     }
 
     internal static bool IsCurrent(string appDirectory, bool hasPortableData, IEnumerable<string> profileSids,

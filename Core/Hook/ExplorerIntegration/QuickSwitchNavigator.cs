@@ -1,5 +1,4 @@
 using Lertaro.Core.Hook.Commands;
-using Lertaro.PluginSdk.Abstractions.Plugins.WindowAdapters;
 
 namespace Lertaro.Core.Hook;
 

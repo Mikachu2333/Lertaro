@@ -18,6 +18,7 @@ using Lertaro.Core.Services.Installation;
 using Lertaro.Core.Services;
 using Application = System.Windows.Application;
 namespace Lertaro.App;
+
 public partial class App : Application
 {
     // Set before InitializeComponent creates controls, including plugin content and popup controls.

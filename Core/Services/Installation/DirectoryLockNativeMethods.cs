@@ -100,8 +100,10 @@ internal static partial class DirectoryLockNativeMethods
                 parent.DangerousAddRef(ref added);
                 var attributes = new ObjectAttributes
                 {
-                    Length = (uint)sizeof(ObjectAttributes), RootDirectory = parent.DangerousGetHandle(),
-                    ObjectName = &unicode, Attributes = 0x40 // OBJ_CASE_INSENSITIVE
+                    Length = (uint)sizeof(ObjectAttributes),
+                    RootDirectory = parent.DangerousGetHandle(),
+                    ObjectName = &unicode,
+                    Attributes = 0x40 // OBJ_CASE_INSENSITIVE
                 };
                 // FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT | FILE_OPEN_REPARSE_POINT
                 var status = NtOpenFile(out var handle, access, &attributes, out _, share, 0x00204020);

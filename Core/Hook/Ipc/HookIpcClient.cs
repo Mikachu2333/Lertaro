@@ -4,6 +4,7 @@ using Lertaro.Core.Services.Search;
 using Lertaro.Core.Wire;
 using Lertaro.Core.Hook.Commands;
 namespace Lertaro.Core.Hook.Ipc;
+
 public sealed class HookIpcClient : IDisposable
 {
     private Process? _hookProcess;
