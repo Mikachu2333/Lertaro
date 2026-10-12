@@ -2,6 +2,7 @@ using Lertaro.Core.Hook;
 using Lertaro.Core.Hook.Commands;
 using Lertaro.Core.Hook.InlineSearch;
 using Lertaro.PluginSdk.Abstractions.Plugins.WindowAdapters;
+using Lertaro.PluginSdk.Registries;
 
 namespace Lertaro.Core.Tests.Hook;
 
@@ -33,6 +34,20 @@ public sealed class QuickSwitchTests
             if (Throw) throw new InvalidOperationException("adapter fault");
             return navigate;
         }
+    }
+
+    // Sentinels are unique per test run, so an adapter registered here claims a handle nothing else uses.
+    private static int _sentinels;
+    private static IntPtr NextSentinel() => new(0x500000 + Interlocked.Increment(ref _sentinels));
+
+    /// <summary>Stands in for a registry entry that answers for exactly one window.</summary>
+    private sealed class SentinelAdapter(IntPtr hwnd, RecordingAdapter recorder) : IFileDialogAdapter
+    {
+        public bool CanHandle(IntPtr candidate, string className, string processName) => candidate == hwnd;
+        public string? GetCurrentPath(IntPtr candidate) => recorder.GetCurrentPath(candidate);
+        public bool GetDockBounds(IntPtr candidate, out AdapterRect rect) => recorder.GetDockBounds(candidate, out rect);
+        public bool RestoreFocus(IntPtr candidate) => recorder.RestoreFocus(candidate);
+        public bool NavigateTo(IntPtr candidate, string targetPath) => recorder.NavigateTo(candidate, targetPath);
     }
 
     private sealed class ProviderAdapter : IInlineSearchAdapter
@@ -73,11 +88,15 @@ public sealed class QuickSwitchTests
     {
         using var tracker = DialogTracker(browsedFolder: @"D:\Work");
         var adapter = (RecordingAdapter)tracker.ActiveAdapter!;
+        var handedOff = new List<(IntPtr Hwnd, string Path)>();
 
-        // Synchronously, where production queues the work item: what this asserts is the path handed over.
-        Assert.IsTrue(QuickSwitchNavigator.Execute(tracker, Dialog, (a, h, p) => a.NavigateTo(h, p)));
+        // Synchronously, where production queues the work item: what this asserts is the window and the path
+        // handed over. Which adapter ends up navigating is the work item's own question (PR #352), so the
+        // seam hands over the tracker and the handle rather than an adapter from this snapshot.
+        Assert.IsTrue(QuickSwitchNavigator.Execute(tracker, Dialog, (_, h, p) => handedOff.Add((h, p))));
 
-        Assert.AreEqual((Dialog, @"D:\Work\"), Assert.ContainsSingle(adapter.Navigations));
+        Assert.AreEqual((Dialog, @"D:\Work\"), Assert.ContainsSingle(handedOff));
+        Assert.IsEmpty(adapter.Navigations);
     }
 
     [TestMethod]
@@ -104,12 +123,60 @@ public sealed class QuickSwitchTests
         Assert.IsEmpty(adapter.Navigations);
     }
 
+    // A dialog this process could not match an adapter for is still worth handing over: the window is tracked
+    // as a dialog (the App's mirror claimed it), and asking the registry by handle is the only resolution that
+    // is not a snapshot. PR #352's point, and the reason the adapter is no longer checked here.
     [TestMethod]
-    public void Execute_NoAdapterForTheDialog_DoesNotNavigate()
+    public void Execute_NoAdapterInTheSnapshot_StillHandsTheWindowOver()
     {
         using var tracker = DialogTracker(withAdapter: false, browsedFolder: @"D:\Work");
+        var handedOff = new List<(IntPtr Hwnd, string Path)>();
 
-        Assert.IsFalse(QuickSwitchNavigator.Execute(tracker, Dialog));
+        Assert.IsTrue(QuickSwitchNavigator.Execute(tracker, Dialog, (_, h, p) => handedOff.Add((h, p))));
+
+        Assert.AreEqual((Dialog, @"D:\Work\"), Assert.ContainsSingle(handedOff));
+    }
+
+    // The fallback is the tracker's adapter, and only for the handle it is still tracking: a handle the
+    // tracker has let go of, with nothing in the registry claiming it either, is refused rather than navigated
+    // with whatever adapter happened to be cached.
+    [TestMethod]
+    public void NavigateResolvingAdapter_AHandleNobodyClaims_IsRefusedWithoutNavigating()
+    {
+        using var tracker = DialogTracker(browsedFolder: @"D:\Work");
+        var adapter = (RecordingAdapter)tracker.ActiveAdapter!;
+        tracker.ActiveHwnd = new IntPtr(0x9999);
+
+        FileDialogCommandHandler.NavigateResolvingAdapter(tracker, Dialog, @"D:\Work\");
+
+        Assert.IsEmpty(adapter.Navigations);
+    }
+
+    // PR #352's point, and the reason the registry is asked first: the adapter the tracker holds was resolved
+    // when it classified the window, and it re-derives that answer afterwards on purpose. Navigating with the
+    // stale one gets a silent false from NavigateTo.
+    [TestMethod]
+    public void ResolveAdapter_TheRegistrysAnswerForTheHandle_BeatsTheTrackersStaleOne()
+    {
+        var sentinel = NextSentinel();
+        var fromRegistry = new RecordingAdapter();
+        // Claims exactly one handle -- this sentinel -- so it stays inert for every other test that shares the
+        // static registry, which has no way to unregister an adapter.
+        FileDialogAdapterRegistry.Register(new SentinelAdapter(sentinel, fromRegistry));
+
+        using var tracker = DialogTracker();
+        var stale = (RecordingAdapter)tracker.ActiveAdapter!;
+        tracker.ActiveHwnd = sentinel;
+        tracker.IsActiveWindowDialog = true;
+        tracker.ActiveAdapter = stale;
+
+        var resolved = FileDialogCommandHandler.ResolveAdapter(tracker, sentinel);
+
+        Assert.IsInstanceOfType<SentinelAdapter>(resolved);
+        Assert.AreNotSame(stale, resolved);
+        // And it really is the registry's entry doing the work, not merely a different object.
+        resolved!.NavigateTo(sentinel, @"D:\Work\");
+        Assert.AreEqual((sentinel, @"D:\Work\"), Assert.ContainsSingle(fromRegistry.Navigations));
     }
 
     [TestMethod]
@@ -139,10 +206,14 @@ public sealed class QuickSwitchTests
         using var tracker = DialogTracker(browsedFolder: @"D:\Work");
         var adapter = new RecordingAdapter { Throw = true };
 
-        // The hand-off itself succeeds; the fault happens on the pool thread, which is why the body swallows.
-        Assert.IsTrue(QuickSwitchNavigator.Execute(tracker, Dialog, (a, h, p) => FileDialogCommandHandler.NavigateLoggingFailures(a, h, p)));
+        // The hand-off itself succeeds, and each attempt records before it throws, so the fault happened twice
+        // and escaped neither time -- escaping a pool work item takes the whole hook process down with it.
+        Assert.IsTrue(QuickSwitchNavigator.Execute(tracker, Dialog, (t, h, p) => FileDialogCommandHandler.NavigateLoggingFailures(adapter, h, p)));
         FileDialogCommandHandler.NavigateLoggingFailures(adapter, Dialog, @"D:\Work\");
-        Assert.AreEqual((Dialog, @"D:\Work\"), Assert.ContainsSingle(adapter.Navigations));
+
+        Assert.AreEqual(2, adapter.Navigations.Count);
+        Assert.AreEqual((Dialog, @"D:\Work\"), adapter.Navigations[0]);
+        Assert.AreEqual((Dialog, @"D:\Work\"), adapter.Navigations[1]);
     }
 
     [TestMethod]

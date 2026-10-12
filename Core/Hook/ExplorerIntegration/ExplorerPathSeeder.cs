@@ -90,10 +90,15 @@ internal sealed class ExplorerPathSeeder
         if (string.IsNullOrEmpty(path)) return false;
 
         Logger.Log($"[ExplorerTracker] Seeded the last browsed folder from 0x{hwnd:x} ({className}): {path}", LogLevel.Info);
-        _tracker.UpdatePath(path, false);
-        // Remembered after publishing, and only now that a folder is actually known: an entry with no path
-        // cannot be chosen for a switch, and it would push a real one out of the list.
-        _tracker.RememberPathProvider(adapter, hwnd, path);
+        // Under the lock, because this runs on a pool thread while the WinEvent tracker thread is classifying
+        // windows into the same state: both the path and the provider list are that state's fields.
+        lock (_tracker.StateLock)
+        {
+            _tracker.UpdatePath(path, false);
+            // Remembered after publishing, and only now that a folder is actually known: an entry with no path
+            // cannot be chosen for a switch, and it would push a real one out of the list.
+            _tracker.RememberPathProvider(adapter, hwnd, path);
+        }
         return true;
     }
 

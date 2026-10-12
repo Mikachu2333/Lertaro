@@ -21,21 +21,21 @@ internal static class QuickSwitchNavigator
     /// logged with its reason, because the user's only other evidence is that nothing happened.
     /// </summary>
     /// <param name="navigate">
-    /// Test seam only: production hands the navigation to <see cref="FileDialogCommandHandler.NavigateOffThread"/>.
+    /// Test seam only: production hands the navigation to <see cref="FileDialogCommandHandler.NavigateOffThread"/>,
+    /// which resolves the adapter for the window itself rather than reusing this snapshot.
     /// </param>
     internal static bool Execute(ExplorerTracker tracker, IntPtr dialogHwnd,
-        Action<IFileDialogAdapter, IntPtr, string>? navigate = null)
+        Action<ExplorerTracker, IntPtr, string>? navigate = null)
     {
-        IFileDialogAdapter? adapter;
         string? path;
         lock (tracker.StateLock)
         {
             // Re-read rather than trust what the hook saw: this runs a moment later, on the thread that keeps
             // the state current, and the dialog may be gone or another window may have taken over since.
+            // No adapter check here: whether one matches this window is the navigation's own question, and
+            // asking it from the handle is the only answer that is not a snapshot (see ResolveAdapter).
             if (dialogHwnd == IntPtr.Zero || tracker.ActiveHwnd != dialogHwnd || !tracker.IsActiveWindowDialog)
                 return Reject(dialogHwnd, "the tracked window is no longer the dialog");
-            if ((adapter = tracker.ActiveAdapter) == null)
-                return Reject(dialogHwnd, "no file-dialog adapter matched this process");
             path = tracker.SelectQuickSwitchPath(dialogHwnd);
         }
 
@@ -45,8 +45,8 @@ internal static class QuickSwitchNavigator
             return Reject(dialogHwnd, "the dialog window is gone");
 
         var navPath = path.EndsWith('\\') ? path : path + "\\";
-        if (navigate == null) FileDialogCommandHandler.NavigateOffThread(adapter, dialogHwnd, navPath);
-        else navigate(adapter, dialogHwnd, navPath);
+        if (navigate == null) FileDialogCommandHandler.NavigateOffThread(tracker, dialogHwnd, navPath);
+        else navigate(tracker, dialogHwnd, navPath);
         Logger.Log($"[QuickSwitch] Navigating 0x{dialogHwnd:x} to {navPath}.", LogLevel.Debug);
         return true;
     }

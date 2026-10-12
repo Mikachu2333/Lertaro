@@ -477,8 +477,13 @@ public class ExplorerTracker : IDisposable
         Logger.Log("[ExplorerTracker] Started.");
         _classifier.CheckActiveWindow(ExplorerNativeHooks.GetForegroundWindow());
         // The window in front right now is the App that just started, so nothing has read a file manager's
-        // folder yet and the first Ctrl+G would do nothing. See ExplorerPathSeeder.
-        _seeder.SeedWhenNothingIsKnown();
+        // folder yet and the first Ctrl+G would do nothing (see ExplorerPathSeeder).
+        //
+        // Off this thread, and after the hooks are up: that probing is bounded per window but not free (a dozen
+        // windows, each with its own read budget), and HookProcess aborts the whole hook -- no keyboard hook at
+        // all -- if this thread has not finished starting within ten seconds. Seeding is best-effort by
+        // definition; installing the hooks is not.
+        _ = Task.Run(_seeder.SeedWhenNothingIsKnown);
     }
     public void Stop()
     {
