@@ -1,6 +1,7 @@
 using Lertaro.Core.Hook;
 using Lertaro.Core.Hook.Commands;
 using Lertaro.Core.Hook.InlineSearch;
+using Lertaro.Core.Hook.Ipc;
 using Lertaro.PluginSdk.Abstractions.Plugins.WindowAdapters;
 using Lertaro.PluginSdk.Registries;
 
@@ -328,6 +329,23 @@ public sealed class QuickSwitchTests
             release.Set();
             holder.Wait(TimeSpan.FromSeconds(5));
         }
+    }
+
+    // The hand-off into the tracker thread is the last step of the gesture, and the tracker thread is also the
+    // one thing that can be gone: a hook that never started it (id 0) and one whose tracker has exited both
+    // have to come back as "nothing was handed over", because the caller's only remaining move is to say so --
+    // the keystroke has been claimed by then either way.
+    [TestMethod]
+    public void RequestQuickSwitch_WithoutATrackerThreadToHandItTo_ReportsFailure()
+    {
+        var exitedThreadId = 0u;
+        var thread = new Thread(() => exitedThreadId = ExplorerNativeHooks.GetCurrentThreadId());
+        thread.Start();
+        thread.Join();
+
+        Assert.AreNotEqual(0u, exitedThreadId);
+        Assert.IsFalse(HookProcess.RequestQuickSwitch((int)exitedThreadId));
+        Assert.IsFalse(HookProcess.RequestQuickSwitch(0));
     }
 
     [TestMethod]

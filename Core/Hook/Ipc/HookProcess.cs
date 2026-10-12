@@ -72,6 +72,14 @@ public sealed class HookProcess : IDisposable
             PostThreadMessage(_trackerThreadId, WM_REFRESH_ACTIVE_ADAPTERS, IntPtr.Zero, IntPtr.Zero);
     }
 
+    /// <summary>
+    /// Hands one Quick Switch to the tracker thread. False when there is no such thread to hand it to -- a
+    /// tracker thread that never started (id 0) and one that has already exited both fail in the post itself --
+    /// which the caller reports: the keystroke was claimed by then either way.
+    /// </summary>
+    internal static bool RequestQuickSwitch(int trackerThreadId) =>
+        PostThreadMessage(trackerThreadId, WM_QUICK_SWITCH, IntPtr.Zero, IntPtr.Zero);
+
     internal void PublishOpenedFolders() => _openedFolderSnapshots.Publish();
 
     /// <summary>
@@ -356,7 +364,11 @@ public sealed class HookProcess : IDisposable
             _keyboardHook.OnQuickSwitchRequested += dialogHwnd =>
             {
                 Volatile.Write(ref _quickSwitchDialog, dialogHwnd);
-                PostThreadMessage(_trackerThreadId, WM_QUICK_SWITCH, IntPtr.Zero, IntPtr.Zero);
+                // The gesture has already claimed the keystroke by the time this runs -- the detector consumes it
+                // as soon as this callback returns -- so a hand-off that never arrived is a Ctrl+G the user
+                // cannot get back: it has to say so rather than vanish.
+                if (!RequestQuickSwitch(_trackerThreadId))
+                    Logger.Log($"[HookProcess] Quick Switch could not be handed to the tracker thread ({_trackerThreadId}); the keystroke was consumed.", LogLevel.Warn);
             };
             _keyboardHook.OnDoubleCtrl += () =>
             {
