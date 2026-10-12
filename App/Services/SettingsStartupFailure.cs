@@ -25,6 +25,13 @@ internal sealed class SettingsSessionUnavailableException(string dataDirectory, 
 }
 
 /// <summary>
+/// The data folder is reached through a link whose target this build does not support: a relocation onto a
+/// network or removable volume. Refused before anything opens the folder, so the reason is the message rather
+/// than a link refusal dressed up as a settings transfer.
+/// </summary>
+internal sealed class SettingsDataRootUnsupportedException(string message) : IOException(message);
+
+/// <summary>
 /// The one place that turns a settings start-up failure into what the user is told. Split out of
 /// <c>App.OnStartup</c> so the wording -- and the single case that may name other instances -- is assertable
 /// without a window. The old text blamed a settings transfer for every failure, which sent a user whose data
@@ -52,6 +59,17 @@ internal static class SettingsStartupFailure
             + (exception is SettingsLeaseConflictException ? string.Empty : "\n" + Text.RelocationHint);
     }
 
+    /// <summary>
+    /// What is shown when the data folder's own relocation cannot be supported at all -- the one case the
+    /// refusal above has to name itself, because nothing else on this path may speak for it.
+    /// </summary>
+    internal static string DescribeUnsupportedDataRoot(string path, string reason) =>
+        "Lertaro will not start with its data folder in this location.\n"
+        + "Lertaro 不会在此位置启动：数据目录所在的卷不受支持。\n\n"
+        + reason + "\n"
+        + $"{Text.DataFolder}: {path}\n"
+        + Text.SupportedHint;
+
     /// <summary>Kept apart from the sentence above only so the two languages stay readable side by side.</summary>
     private static class Text
     {
@@ -59,5 +77,8 @@ internal static class SettingsStartupFailure
         internal const string RelocationHint =
             "If this folder was moved to another drive with a symlink or junction, make sure the link target "
             + "still exists and is writable.\n如果该目录是用符号链接/junction 迁移到其它盘的，请确认链接目标仍然存在且可写。";
+        internal const string SupportedHint =
+            "A relocated data folder is supported only when its target is a local fixed disk; move the folder "
+            + "itself, or repoint the link at one.\n只支持把数据目录迁移到本地固定磁盘；请改为移动目录本身，或把链接指向本地磁盘。";
     }
 }

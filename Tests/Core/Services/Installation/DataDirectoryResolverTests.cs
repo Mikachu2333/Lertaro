@@ -136,6 +136,81 @@ public sealed class DataDirectoryResolverTests
         Assert.AreEqual(Path.TrimEndingDirectorySeparator(missing), DataDirectoryResolver.ResolveFinalTarget(missing));
     }
 
+    // A relocated data folder is supported only on a local fixed disk, and that refusal has to name itself: the
+    // layer below refuses links, which is how a relocation onto a network share was reported to the user as
+    // another instance transferring settings.
+    [TestMethod]
+    public void DescribeRelocationRefusal_LinkToAnUnsupportedVolume_NamesBothPaths()
+    {
+        using var tree = new TempTree();
+        var real = Directory.CreateDirectory(Path.Combine(tree.Root, "real", "Users")).FullName;
+        var link = Path.Combine(tree.Root, "Data", "Users");
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        tree.Link(link, real);
+
+        var previous = DataDirectoryResolver.VolumeIsSupported;
+        try
+        {
+            DataDirectoryResolver.VolumeIsSupported = _ => false;
+            var refusal = DataDirectoryResolver.DescribeRelocationRefusal(link);
+
+            Assert.IsNotNull(refusal);
+            StringAssert.Contains(refusal, "not a local fixed disk");
+            StringAssert.Contains(refusal, link);
+            StringAssert.Contains(refusal, real);
+        }
+        finally { DataDirectoryResolver.VolumeIsSupported = previous; }
+    }
+
+    [TestMethod]
+    public void DescribeRelocationRefusal_LinkToALocalDisk_IsNotARefusal()
+    {
+        using var tree = new TempTree();
+        var real = Directory.CreateDirectory(Path.Combine(tree.Root, "real")).FullName;
+        var link = Path.Combine(tree.Root, "Data");
+        tree.Link(link, real);
+
+        Assert.IsNull(DataDirectoryResolver.DescribeRelocationRefusal(link));
+    }
+
+    // A path that is simply unusual -- no link anywhere in its chain -- has always been allowed to try, and this
+    // check has no business changing that.
+    [TestMethod]
+    public void DescribeRelocationRefusal_NoLinkAtAll_IsNotARefusal()
+    {
+        using var tree = new TempTree();
+        var plain = Directory.CreateDirectory(Path.Combine(tree.Root, "Data", "Users")).FullName;
+
+        var previous = DataDirectoryResolver.VolumeIsSupported;
+        try
+        {
+            DataDirectoryResolver.VolumeIsSupported = _ => false;
+            Assert.IsNull(DataDirectoryResolver.DescribeRelocationRefusal(plain));
+            Assert.IsNull(DataDirectoryResolver.DescribeRelocationRefusal(string.Empty));
+        }
+        finally { DataDirectoryResolver.VolumeIsSupported = previous; }
+    }
+
+    // The same seam decides whether a resolution may be adopted at all: a volume this build will not vouch for
+    // leaves the path exactly as it was, refusal and all.
+    [TestMethod]
+    public void ResolveFinalTarget_UnsupportedTargetVolume_LeavesTheLinkInPlace()
+    {
+        using var tree = new TempTree();
+        var real = Directory.CreateDirectory(Path.Combine(tree.Root, "real", "Users")).FullName;
+        var link = Path.Combine(tree.Root, "Data", "Users");
+        Directory.CreateDirectory(Path.GetDirectoryName(link)!);
+        tree.Link(link, real);
+
+        var previous = DataDirectoryResolver.VolumeIsSupported;
+        try
+        {
+            DataDirectoryResolver.VolumeIsSupported = _ => false;
+            Assert.AreEqual(link, DataDirectoryResolver.ResolveFinalTarget(link));
+        }
+        finally { DataDirectoryResolver.VolumeIsSupported = previous; }
+    }
+
     // The pairing that makes the fix mean something: the settings backup layer refuses the link itself, and
     // accepts the directory the resolver hands it for the same folder.
     [TestMethod]

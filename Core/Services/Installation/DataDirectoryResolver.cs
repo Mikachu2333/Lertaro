@@ -83,7 +83,7 @@ public static class DataDirectoryResolver
                 if (string.Equals(next, rooted, StringComparison.OrdinalIgnoreCase)) break;
                 rooted = next;
             }
-            return IsLocalFixedVolume(rooted) ? rooted : path;
+            return VolumeIsSupported(rooted) ? rooted : path;
         }
         catch
         {
@@ -126,5 +126,41 @@ public static class DataDirectoryResolver
                    new DriveInfo(root).DriveType == DriveType.Fixed;
         }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Overridable so the "unsupported volume" branch can be exercised: no test machine has a network share to
+    /// relocate a data folder onto, and that branch is the whole point of the refusal below.
+    /// </summary>
+    internal static Func<string, bool> VolumeIsSupported { get; set; } = IsLocalFixedVolume;
+
+    /// <summary>
+    /// Why a data root reached through a link cannot be used, or null when it can.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ResolveFinalTarget"/> deliberately leaves a path it cannot vouch for untouched, and the layer
+    /// below then refuses it as a link -- which is how a data folder relocated to a network share produced the
+    /// message about another instance transferring settings. Only a relocation is refused here: a path that is
+    /// simply somewhere unusual (no link anywhere in its chain) is left to behave exactly as it always has.
+    /// </remarks>
+    public static string? DescribeRelocationRefusal(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        try
+        {
+            var rooted = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            var resolved = ResolveExistingChain(rooted);
+            if (string.Equals(resolved, rooted, StringComparison.OrdinalIgnoreCase)) return null;
+            if (VolumeIsSupported(resolved)) return null;
+
+            return $"The data folder is reached through a link whose target is not a local fixed disk. "
+                + $"Move the folder itself, or point the link at a local disk. ({rooted} -> {resolved})";
+        }
+        catch
+        {
+            // A path that cannot even be resolved is not something this check can speak for; the layer below
+            // still has its own refusal for it.
+            return null;
+        }
     }
 }

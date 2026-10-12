@@ -42,4 +42,30 @@ public sealed class SettingsStartupFailureTests
         StringAssert.Contains(text, "denied");
         StringAssert.Contains(text, Logger.UserDataDir);
     }
+
+    // The relocation this build will not support: refused before anything opens the folder, with the reason, the
+    // path and the rule that was applied -- and never with the "another instance" sentence.
+    [TestMethod]
+    public void DescribeUnsupportedDataRoot_NamesTheReasonThePathAndTheRule()
+    {
+        var text = SettingsStartupFailure.DescribeUnsupportedDataRoot(
+            @"C:\Users\x\AppData\Local\Lertaro",
+            @"The data folder is reached through a link whose target is not a local fixed disk. (C:\Users\x\AppData\Local\Lertaro -> \\nas\share\Lertaro)");
+
+        StringAssert.Contains(text, @"\\nas\share\Lertaro");
+        StringAssert.Contains(text, @"C:\Users\x\AppData\Local\Lertaro");
+        StringAssert.Contains(text, "local fixed disk");
+        Assert.IsFalse(text.Contains("其他 Lertaro 实例", StringComparison.Ordinal), text);
+    }
+
+    // The bootstrapper throws this and shows its message verbatim, so the whole explanation has to be in it.
+    [TestMethod]
+    public void SettingsDataRootUnsupportedException_CarriesTheExplanation()
+    {
+        var exception = new SettingsDataRootUnsupportedException(
+            SettingsStartupFailure.DescribeUnsupportedDataRoot(@"D:\Moved", "unsupported volume"));
+
+        StringAssert.Contains(exception.Message, "unsupported volume");
+        StringAssert.Contains(exception.Message, @"D:\Moved");
+    }
 }

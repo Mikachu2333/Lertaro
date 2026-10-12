@@ -10,6 +10,13 @@ internal static class AppStartupServiceBootstrapper
     {
         try
         {
+            // Before anything opens the folder: a relocation this build cannot support is refused with its own
+            // reason, instead of reaching the layer that refuses links and being reported as a settings transfer
+            // (see DataDirectoryResolver.DescribeRelocationRefusal).
+            if (Core.Services.Installation.DataDirectoryResolver.DescribeRelocationRefusal(Logger.UserDataDir) is { } refusal)
+                throw new SettingsDataRootUnsupportedException(
+                    SettingsStartupFailure.DescribeUnsupportedDataRoot(Logger.UserDataDir, refusal));
+
             try { Core.Services.Installation.UserDataAccess.Verify(Logger.UserDataDir); return true; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
 
