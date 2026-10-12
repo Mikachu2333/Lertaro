@@ -502,6 +502,10 @@ public class ExplorerTracker : IDisposable
         _pathProviders.Clear();
         Logger.Log("[ExplorerTracker] Stopped.");
     }
+
+    /// <summary>Whether the WinEvent hooks are installed and this tracker still owns state worth publishing.</summary>
+    internal bool IsRunning => _isRunning;
+
     public bool TryGetActiveWindowRect(out RECT rect)
     {
         rect = default;

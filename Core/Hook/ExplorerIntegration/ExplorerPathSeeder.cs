@@ -94,6 +94,10 @@ internal sealed class ExplorerPathSeeder
         // windows into the same state: both the path and the provider list are that state's fields.
         lock (_tracker.StateLock)
         {
+            // ...and not at all once the tracker has stopped: a seed is a snapshot taken seconds ago, and a
+            // stopped tracker's state is not something to publish into a running App's mirror.
+            if (!MayPublish(_tracker.IsRunning, hwnd, path)) return false;
+
             _tracker.UpdatePath(path, false);
             // Remembered after publishing, and only now that a folder is actually known: an entry with no path
             // cannot be chosen for a switch, and it would push a real one out of the list.
@@ -101,6 +105,10 @@ internal sealed class ExplorerPathSeeder
         }
         return true;
     }
+
+    /// <summary>Whether a read folder may still be published: only a running tracker has state to publish into.</summary>
+    internal static bool MayPublish(bool isRunning, IntPtr hwnd, string? path) =>
+        isRunning && hwnd != IntPtr.Zero && !string.IsNullOrEmpty(path);
 
     private static string ClassNameOf(IntPtr hwnd)
     {
