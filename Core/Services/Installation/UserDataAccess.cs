@@ -51,6 +51,29 @@ public static class UserDataAccess
         catch { return null; }
     }
 
+    /// <summary>
+    /// Why asking for an elevated repair would be pointless, or null when it may still be tried.
+    /// </summary>
+    /// <remarks>
+    /// A launcher that runs Lertaro sandboxed or reduced hands its process a Low mandatory label, and a Low
+    /// process cannot write anywhere in the user's own profile whatever the ACLs say -- the file it creates
+    /// inherits the folder's Medium label and its own write-up policy refuses the write. Elevation cannot change
+    /// that: the repair runs with its own token and exits, leaving the reduced one to try again, so the only
+    /// answer worth giving is the one the user can act on. The elevated attempt is still offered for everything
+    /// a repair can genuinely fix, which is why this is only about this process's own level.
+    /// </remarks>
+    internal static string? RepairCannotHelpReason(string directory) =>
+        ReducedIntegrityReason(directory, ProcessIntegrityLevel.Current());
+
+    /// <summary>What <see cref="RepairCannotHelpReason"/> says at a given level. Pure, so it can be asserted.</summary>
+    internal static string? ReducedIntegrityReason(string directory, uint integrityRid) =>
+        integrityRid < ProcessIntegrityLevel.MediumLevel
+            ? $"{directory} is not writable by this process: it runs at "
+              + $"{ProcessIntegrityLevel.Name(integrityRid)} integrity, and an elevated repair does "
+              + "not change the token this process would still be using. Start Lertaro directly (Explorer, or a "
+              + "normal command prompt), not from a sandboxed or reduced-privilege launcher."
+            : null;
+
     private static byte[] DescribeUserDirectory(SecurityIdentifier user)
     {
         var descriptor = InstallDirectoryLock.Describe(PortableDirectoryLock.OwnedBy(user), true, true);

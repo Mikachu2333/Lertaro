@@ -6,6 +6,33 @@ namespace Lertaro.App.Services;
 
 internal static class AppStartupServiceBootstrapper
 {
+    // A settings file another instance is still saving, or a folder an indexer has open, is a lock -- and
+    // elevation cannot fix a lock. Waiting it out first is the difference between a start that would have
+    // succeeded and one that showed a UAC prompt and re-ACLed the whole tree underneath it.
+    private const int VerifyAttempts = 6;
+    private static readonly TimeSpan VerifyRetryDelay = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// True when <paramref name="directory"/> is usable, waiting out a lock instead of escalating it.
+    /// </summary>
+    /// <remarks>
+    /// Only an <see cref="IOException"/> is worth another look: a link, or an owner that is not this account,
+    /// is what the elevated repair exists for and waiting cannot change either of those. Anything that is
+    /// still unusable after the last attempt falls through to the repair exactly as one failure used to.
+    /// </remarks>
+    internal static async Task<bool> VerifyUserDataAsync(string directory, int attempts, TimeSpan delay)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { Core.Services.Installation.UserDataAccess.Verify(directory); return true; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (ex is UnauthorizedAccessException || attempt >= attempts) return false;
+                await Task.Delay(delay).ConfigureAwait(false);
+            }
+        }
+    }
+
     public static async Task<bool> PrepareUserSettingsAsync()
     {
         try
@@ -17,8 +44,14 @@ internal static class AppStartupServiceBootstrapper
                 throw new SettingsDataRootUnsupportedException(
                     SettingsStartupFailure.DescribeUnsupportedDataRoot(Logger.UserDataDir, refusal));
 
-            try { Core.Services.Installation.UserDataAccess.Verify(Logger.UserDataDir); return true; }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            if (await VerifyUserDataAsync(Logger.UserDataDir, VerifyAttempts, VerifyRetryDelay)) return true;
+
+            // A sandboxed or reduced launcher is not something the elevated repair can undo: it would fix ACLs
+            // and then hand the same reduced token back to try again. Saying that is more use than a UAC prompt
+            // which cannot change the outcome, and it is the difference between "Access is denied" and knowing
+            // that this copy was started from the wrong place.
+            if (Core.Services.Installation.UserDataAccess.RepairCannotHelpReason(Logger.UserDataDir) is { } reduced)
+                throw new UnauthorizedAccessException(reduced);
 
             // 5.8.2–5.8.4 could lock the user's own directory. Give the current service a chance to
             // repair it before asking for elevation, and finish this before loading settings or plugins.

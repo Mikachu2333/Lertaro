@@ -50,20 +50,38 @@ static class Program
                     if (args.Length != 2 || !UserProfiles.IsAccount(args[1]) ||
                         !UserProfiles.Read().TryGetValue(args[1], out var profile))
                         throw new UnauthorizedAccessException("Unknown settings owner.");
-                    // Derived from Windows' profile map, never an arbitrary path supplied by a low-integrity process.
-                    var localData = Path.Combine(profile, "AppData", "Local", "Lertaro");
-                    if (Directory.Exists(localData))
+                    var user = new System.Security.Principal.SecurityIdentifier(args[1]);
+                    var failures = new List<string>();
+
+                    // Every root this copy could be about to use, both derived from the profile map and this
+                    // process's own location -- never an arbitrary path supplied by a low-integrity process.
+                    // A portable copy keeps its user data beside its executable, so repairing only the profile
+                    // default walked a folder the App never reads and left the one it does read untouched.
+                    foreach (var directory in PortableDirectoryLock.RepairTargets(InstallationDetector.Detect(),
+                                 AppContext.BaseDirectory,
+                                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                 profile, args[1]))
                     {
-                        PermissionRepairReport.Write($"repairing {localData}");
-                        var repaired = PortableDirectoryLock.RepairProfileUserDirectory(profile, new System.Security.Principal.SecurityIdentifier(args[1]));
-                        if (repaired.Failed.Count > 0 || repaired.UserDataFailed.Count > 0)
-                            throw new IOException(string.Join(Environment.NewLine, repaired.Failed.Concat(repaired.UserDataFailed)));
-                    }
-                    else
-                    {
-                        PermissionRepairReport.Write($"{localData} does not exist; nothing to repair.");
+                        if (!Directory.Exists(directory))
+                        {
+                            PermissionRepairReport.Write($"{directory} does not exist; nothing to repair.");
+                            continue;
+                        }
+
+                        PermissionRepairReport.Write($"repairing {directory}");
+                        var repaired = PortableDirectoryLock.RepairUserDataDirectory(directory, profile, user);
+                        if (PortableDirectoryLock.FatalReason(repaired) is { } fatal) failures.Add(fatal);
+                        // A personal file another process is holding open is not the trust boundary, and
+                        // elevation cannot open it anyway, so it is recorded rather than failing the repair:
+                        // one busy settings file must not be the reason the App cannot start. The App
+                        // re-checks the directory itself once this returns (UserDataAccess.Verify), and that
+                        // is the verdict which actually decides whether it can run.
+                        if (repaired.UserDataFailed.Count > 0)
+                            PermissionRepairReport.Write(
+                                $"left as it is, in use: {string.Join(Environment.NewLine, repaired.UserDataFailed)}");
                     }
 
+                    if (failures.Count > 0) throw new IOException(string.Join(Environment.NewLine, failures));
                     PermissionRepairReport.Write("repair completed");
                 }
                 catch (Exception ex)
