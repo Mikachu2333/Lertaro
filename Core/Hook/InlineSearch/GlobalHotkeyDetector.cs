@@ -20,11 +20,10 @@ public sealed class GlobalHotkeyDetector
     {
         _settings = settings;
         _explorerTracker = explorerTracker;
-        _requestQuickSwitch = requestQuickSwitch;
         // Without a tracker thread to post to, the same policy runs here: that is what tests get, and what any
         // caller that only needs the gesture answered gets.
-        if (_requestQuickSwitch == null)
-            _requestQuickSwitch = hwnd => { QuickSwitchNavigator.Execute(_explorerTracker, hwnd); };
+        _requestQuickSwitch = requestQuickSwitch
+            ?? (hwnd => QuickSwitchNavigator.Execute(_explorerTracker, hwnd));
     }
 
     public void OnKeyDown(int vkCode) => _modifierKeyState.OnKeyDown(vkCode);
