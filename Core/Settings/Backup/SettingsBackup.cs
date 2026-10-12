@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Lertaro.Core.Services.Installation;
 using Lertaro.Core.Settings.Migration;
 
 namespace Lertaro.Core;
@@ -204,7 +205,11 @@ public static class SettingsBackup
     {
         // Coordination is local to this machine, not portable user data. Sync clients must never
         // copy or contend for a live process lease beside the settings they are synchronizing.
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lertaro", "RuntimeLocks");
+        // Resolved like the data roots are: a profile folder the user relocated to another drive puts a link
+        // in this path too, and an unresolved one is refused by SettingsBackupPaths below -- which is how a
+        // start-up ended in the "another instance is transferring settings" message for a link, not a lease.
+        var directory = DataDirectoryResolver.ResolveFinalTarget(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lertaro", "RuntimeLocks"));
         Directory.CreateDirectory(directory);
         using var root = new SettingsBackupPaths(directory);
         var name = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(

@@ -94,7 +94,11 @@ public partial class App : Application
         try { _settingsSession = SettingsTransferRestart.StartSession(e.Args, out transferMessage); }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"Settings transfer could not complete. No plugins were started.\n配置传输未完成，插件尚未启动。请关闭其他 Lertaro 实例后重试。\n\n{ex.Message}", "Lertaro",
+            // Logged before the box. This catch used to say nothing at all and show one hardcoded sentence
+            // about other instances, so a data folder that had merely been relocated to another drive was
+            // reported as a settings transfer in progress -- and left no trace to contradict it.
+            Logger.Log($"[App] The settings session could not be started (data={Logger.UserDataDir}): {ex}", LogLevel.Error);
+            System.Windows.MessageBox.Show(SettingsStartupFailure.Describe(ex), "Lertaro",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
             return;

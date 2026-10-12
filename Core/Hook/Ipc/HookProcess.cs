@@ -34,6 +34,9 @@ public sealed class HookProcess : IDisposable
 
     private const uint WM_QUIT = 0x0012;
     private const uint WM_REFRESH_ACTIVE_ADAPTERS = 0x8001;
+    // Quick Switch on the tracker thread: the gesture is recognized in the low-level keyboard hook, which may
+    // not take the tracker lock (see GlobalHotkeyDetector) and may not block on another process.
+    private const uint WM_QUICK_SWITCH = 0x8002;
 
     private readonly HookIpcServer _ipcServer;
     private readonly HookCommandHandler _commandHandler;
@@ -55,6 +58,9 @@ public sealed class HookProcess : IDisposable
     private uint _appProcessId;
     private int _watchedAppPid;
     private bool _isHotkeysDisabledTemporarily;
+    // Written by the keyboard hook thread, read by the tracker thread; the window message between them is the
+    // synchronization, and a plain field read here would be the one place the value could still be torn.
+    private IntPtr _quickSwitchDialog;
 
     internal KeyboardHookService? KeyboardHook => _keyboardHook;
     internal ExplorerTracker? ExplorerTracker => _explorerTracker;
@@ -292,6 +298,14 @@ public sealed class HookProcess : IDisposable
                             _explorerTracker?.RefreshActiveWindowAdapters();
                             continue;
                         }
+                        if (msg.message == WM_QUICK_SWITCH)
+                        {
+                            // A later keystroke replaces an unanswered one, which is what the user means by
+                            // pressing Ctrl+G twice: the newest dialog is the one on screen.
+                            var dialogHwnd = Volatile.Read(ref _quickSwitchDialog);
+                            if (_explorerTracker != null) QuickSwitchNavigator.Execute(_explorerTracker, dialogHwnd);
+                            continue;
+                        }
                         TranslateMessage(ref msg);
                         DispatchMessage(ref msg);
                     }
@@ -339,6 +353,11 @@ public sealed class HookProcess : IDisposable
                 _ipcServer.SendQuickPanelHotkey();
             };
             _keyboardHook.OnQuickNavigationHotkey += () => _ipcServer.SendQuickNavigationHotkey();
+            _keyboardHook.OnQuickSwitchRequested += dialogHwnd =>
+            {
+                Volatile.Write(ref _quickSwitchDialog, dialogHwnd);
+                PostThreadMessage(_trackerThreadId, WM_QUICK_SWITCH, IntPtr.Zero, IntPtr.Zero);
+            };
             _keyboardHook.OnDoubleCtrl += () =>
             {
                 Logger.Log("[HookProcess] Double-Ctrl detected, sending ACTIVATE.", LogLevel.Debug);
