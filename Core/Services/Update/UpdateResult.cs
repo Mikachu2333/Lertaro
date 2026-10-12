@@ -22,6 +22,12 @@ public sealed class UpdateResult
     /// <summary>How old a verdict may be and still be shown: an ancient leftover is history, not news.</summary>
     internal static readonly TimeSpan FreshFor = TimeSpan.FromDays(7);
 
+    // An installation directory is closed to Users only for an INSTALLED copy: a portable one is the user's own
+    // directory, where any process of that user can write anything. So neither the file nor the text taken from
+    // it is trusted to be small.
+    private const long MaximumBytes = 64 * 1024;
+    private const int MaximumMessageLength = 1000;
+
     /// <summary>
     /// One instance: a freshly constructed <see cref="JsonSerializerOptions"/> carries no cached contract
     /// metadata, so every read would re-derive the serializer.
@@ -47,9 +53,23 @@ public sealed class UpdateResult
             var path = Path.Combine(applicationDirectory, FileName);
             if (!File.Exists(path)) return null;
 
+            // A verdict is a few hundred bytes of JSON. Anything much larger than that is not one, and reading
+            // it in full to find that out is exactly what a portable install's own user could arrange.
+            var length = new FileInfo(path).Length;
+            if (length > MaximumBytes)
+            {
+                Logger.Log($"[UpdateResult] {FileName} is {length} bytes; refusing to read it as a verdict.", LogLevel.Warn);
+                return null;
+            }
+
             // ReadAllText drops the BOM an older PowerShell host writes, which a raw byte parse would choke on.
             var result = JsonSerializer.Deserialize<UpdateResult>(File.ReadAllText(path), ReadOptions);
-            return result?.Time > DateTimeOffset.MinValue ? result : null;
+            if (result?.Time is not { } time || time <= DateTimeOffset.MinValue) return null;
+
+            // Clamped, because this text goes straight into a dialog.
+            if (result.Message is { Length: > MaximumMessageLength } message)
+                result.Message = message[..MaximumMessageLength] + "…";
+            return result;
         }
         catch (Exception ex)
         {

@@ -77,4 +77,27 @@ public sealed class UpdateResultTests
         File.WriteAllText(ResultPath, """{"Status":"failed","Time":"2026-10-11T03:30:09.0000000+08:00"}""");
         Assert.IsNotNull(UpdateResult.ReadIfPresent(_directory));
     }
+
+    // A portable installation's directory is the user's own, so neither the file nor the text in it is trusted
+    // to be small -- and both go in front of the user.
+    [TestMethod]
+    public void ReadIfPresent_OversizedFile_IsRefusedInsteadOfRead()
+    {
+        File.WriteAllText(ResultPath, "{\"Status\":\"failed\",\"Time\":\"2026-10-11T03:30:09.0000000+08:00\",\"Message\":\""
+            + new string('x', 128 * 1024) + "\"}");
+
+        Assert.IsNull(UpdateResult.ReadIfPresent(_directory));
+    }
+
+    [TestMethod]
+    public void ReadIfPresent_LongMessage_IsClampedForTheDialog()
+    {
+        File.WriteAllText(ResultPath, "{\"Status\":\"failed\",\"Time\":\"2026-10-11T03:30:09.0000000+08:00\",\"Message\":\""
+            + new string('x', 5000) + "\"}");
+
+        var result = UpdateResult.ReadIfPresent(_directory);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1001, result.Message!.Length);
+    }
 }
