@@ -3,7 +3,10 @@ using Lertaro.Core.Services.Installation;
 
 namespace Lertaro.Core.Tests.Services.Installation;
 
+// [DoNotParallelize]: three of the tests below write DataDirectoryResolver.VolumeIsSupported, which is a
+// process-wide seam, and a resolver call from any other test running beside them would read that override.
 [TestClass]
+[DoNotParallelize]
 public sealed class DataDirectoryResolverTests
 {
     [TestMethod]
