@@ -11,8 +11,8 @@ internal sealed class DispatcherExceptionHandler
     private readonly Action<string, Exception?, bool> _report;
 
     /// <summary>
-    /// Set by the App once its main window is on screen. Until then there is nothing for a handled exception
-    /// to recover into, so <see cref="Handle"/> ends the process after reporting.
+    /// Set by the App at the end of <c>OnStartup</c>. Until then there is nothing for a handled exception to
+    /// recover into, so <see cref="Handle"/> ends the process after reporting.
     /// </summary>
     internal bool StartupCompleted;
 

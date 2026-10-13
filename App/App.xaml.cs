@@ -308,7 +308,6 @@ public partial class App : Application
         _startupInitialized = true;
         MainWindow = new QuickSearchWindow();
         MainWindow.Show();
-        _dispatcherExceptionHandler.StartupCompleted = true;
 
         _ = Dispatcher.BeginInvoke(new Action(() =>
         {
@@ -329,6 +328,9 @@ public partial class App : Application
         Helpers.LocalSend.LocalSendAppEventHandler.Initialize(settings);
         if (transferMessage != null)
             _ = Dispatcher.BeginInvoke(new Action(() => Views.Controls.Dialogs.CustomMessageBox.Show(transferMessage, "Lertaro", MessageBoxButton.OK, MessageBoxImage.Information)));
+        // Nothing before this line may fail quietly, and the window alone was not enough to say the start
+        // worked: LocalSend's identity is built after Show() and it is exactly where a reduced token dies.
+        _dispatcherExceptionHandler.StartupCompleted = true;
     }
 
     public static void HideInlineSearch() => InlineSearchManager.Instance.CloseInlineSearch();
