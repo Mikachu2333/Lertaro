@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -27,14 +26,6 @@ public static class UserDataAccess
             throw new UnauthorizedAccessException(
                 $"The user data directory belongs to another security identity: {directory} (owner: {owner?.Value ?? "unknown"}, expected: {user.Value})");
 
-        // A DACL is only half of "may this process write here". Windows also compares the process's mandatory
-        // integrity level against the folder's: a Low token may not write an unlabelled (Medium) folder, and no
-        // DACL changes that. %LocalAppData%\Lertaro carries no label of its own, so a launch that runs reduced
-        // -- a sandbox, or any launcher that drops the token -- is refused a folder it demonstrably owns. The
-        // label is what makes the two agree, and it grants nothing: NW is no-write-up, so a Low process may
-        // write and every higher level may still do anything it could before.
-        SetLowIntegrityLabel(info);
-
         // An actual read/create/delete, not File.Exists or an Allow-ACE heuristic. Never truncate settings.
         _ = SettingsFileReader.ReadIfPresent(Path.Combine(directory, "user-settings.json"));
         using var probe = new FileStream(Path.Combine(directory, $".access-{Guid.NewGuid():N}.tmp"),
@@ -59,53 +50,6 @@ public static class UserDataAccess
         }
         catch { return null; }
     }
-
-    /// <summary>
-    /// Labels <paramref name="directory"/> Low so a reduced token may write it. Best effort: a host that
-    /// refuses the SACL write (no <c>SeSecurityPrivilege</c>) simply keeps the label it had, and the write
-    /// probe below is what decides.
-    /// </summary>
-    /// <remarks>
-    /// Low plus <c>NW</c> is no-write-up, not no-read-down: the folder stays readable and writable by every
-    /// level at or above Low, which is every level this App runs at. Only the mandatory label is touched --
-    /// the DACL and owner this type just established are left exactly as they are.
-    ///
-    /// The label lives in the SACL, and .NET has no managed accessor for it (<c>AccessControlSections</c> has
-    /// no <c>Label</c> member), so this is the one place that goes to advapi32 directly. A caller who owns the
-    /// directory is allowed to set its label without elevation.
-    /// </remarks>
-    internal static void SetLowIntegrityLabel(DirectoryInfo directory)
-    {
-        const uint SaclSecurityInformation = 0x00000008;
-        const uint SddlRevision1 = 1;
-        var descriptor = IntPtr.Zero;
-        try
-        {
-            if (!ConvertStringSecurityDescriptorToSecurityDescriptorW("S:(ML;;NW;;;LW)", SddlRevision1,
-                    out descriptor, out _))
-                return;
-            SetFileSecurityW(directory.FullName, SaclSecurityInformation, descriptor);
-        }
-        catch
-        {
-            // A folder that cannot be labelled is not a folder that cannot be used: Verify's own probe is the
-            // verdict, and failing here would refuse a start the probe would have allowed.
-        }
-        finally
-        {
-            if (descriptor != IntPtr.Zero) LocalFree(descriptor);
-        }
-    }
-
-    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(string stringSecurityDescriptor,
-        uint stringSdRevision, out IntPtr securityDescriptor, out uint securityDescriptorSize);
-
-    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool SetFileSecurityW(string fileName, uint securityInformation, IntPtr securityDescriptor);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr LocalFree(IntPtr handle);
 
     private static byte[] DescribeUserDirectory(SecurityIdentifier user)
     {

@@ -308,6 +308,7 @@ public partial class App : Application
         _startupInitialized = true;
         MainWindow = new QuickSearchWindow();
         MainWindow.Show();
+        _dispatcherExceptionHandler.StartupCompleted = true;
 
         _ = Dispatcher.BeginInvoke(new Action(() =>
         {

@@ -1,18 +1,11 @@
 using System.Diagnostics;
-using System.Security.Principal;
 using Lertaro.Core.Services.Installation;
 
 namespace Lertaro.Core.Tests.Services.Installation;
 
-// The data root has to be writable by the token this App actually got. Its DACL already grants this account
-// FullControl, so what is left is the mandatory integrity label: a Low token may not write an unlabelled
-// (Medium) folder however the DACL reads, which is the difference between a reduced start that works and one
-// refused a folder it owns.
-//
-// Whether the label can be written is the host's decision, not this type's: a directory owner may set it, and
-// a sandbox that withholds that right (ERROR_ACCESS_DENIED / ERROR_PRIVILEGE_NOT_HELD) must not turn into a
-// refused start. So these tests pin the contract that is the same either way -- it never throws, and it never
-// takes away the access Verify's own probe needs.
+// Verify is the verdict the App acts on: an actual read/create/delete inside the data root, not a File.Exists
+// or an Allow-ACE heuristic. It measures the folder and changes nothing in it, which is what these two tests
+// pin -- a pass leaves no file behind, and a link is refused rather than followed.
 [TestClass]
 public sealed class UserDataAccessTests
 {
@@ -22,31 +15,6 @@ public sealed class UserDataAccessTests
     public void Cleanup()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
-    }
-
-    [TestMethod]
-    public void SetLowIntegrityLabel_OnADirectoryThatCannotBeLabelled_DoesNotThrow()
-    {
-        var directory = Directory.CreateDirectory(_root);
-
-        // No assertion on the resulting label: this machine may or may not allow the write. What must hold is
-        // that a refusal is swallowed -- a start the probe would allow must not die here instead.
-        UserDataAccess.SetLowIntegrityLabel(directory);
-
-        Assert.IsTrue(directory.Exists, "labelling must leave the directory in place");
-    }
-
-    [TestMethod]
-    public void SetLowIntegrityLabel_LeavesTheOwnerAlone()
-    {
-        var directory = Directory.CreateDirectory(_root);
-        var before = directory.GetAccessControl(System.Security.AccessControl.AccessControlSections.Owner)
-            .GetOwner(typeof(SecurityIdentifier));
-
-        UserDataAccess.SetLowIntegrityLabel(directory);
-
-        Assert.AreEqual(before, directory.GetAccessControl(System.Security.AccessControl.AccessControlSections.Owner)
-            .GetOwner(typeof(SecurityIdentifier)), "labelling must not move the owner");
     }
 
     [TestMethod]
